@@ -3,11 +3,12 @@ const {
   currentSyncData,
   contentTypeItems,
   defaultLocale,
-  locales,
+  locales
 } = require(`./data.json`)
 
 let entryList
 let resolvable
+let blankEntries = {}
 let foreignReferenceMap
 const conflictFieldPrefix = `contentful_test`
 // restrictedNodeFields from here https://www.gatsbyjs.org/docs/node-interface/
@@ -17,7 +18,7 @@ describe(`Process contentful data`, () => {
   it(`builds entry list`, () => {
     entryList = normalize.buildEntryList({
       currentSyncData,
-      contentTypeItems,
+      contentTypeItems
     })
     expect(entryList).toMatchSnapshot()
   })
@@ -27,7 +28,7 @@ describe(`Process contentful data`, () => {
       assets: currentSyncData.assets,
       entryList,
       defaultLocale,
-      locales,
+      locales
     })
     expect(resolvable).toMatchSnapshot()
   })
@@ -38,24 +39,60 @@ describe(`Process contentful data`, () => {
       entryList,
       resolvable,
       defaultLocale,
-      locales,
+      locales
     })
     expect(foreignReferenceMap).toMatchSnapshot()
   })
 
+  it(`creates blank entries`, () => {
+    const setBlankEntry = contentTypeItem => {
+      const now = new Date().toISOString()
+      const fields = {}
+      contentTypeItem.fields.forEach(field => {
+        fields[field.id] = setBlankField(field)
+      })
+      const blankEntry = {
+        sys: {
+          space: contentTypeItem.sys.space,
+          id: `cBlank${contentTypeItem.sys.id}`,
+          type: `Entry`,
+          createdAt: now,
+          updatedAt: now,
+          revision: 0,
+          contentType: {
+            sys: {
+              type: `Link`,
+              linkType: `ContentType`,
+              id: `${contentTypeItem.sys.id}`
+            }
+          }
+        },
+        fields
+      }
+      return blankEntry
+    }
+    contentTypeItems.forEach((contentTypeItem, i) => {
+      blankEntries[contentTypeItem.sys.id] = setBlankEntry(contentTypeItem)
+    })
+    expect(blankEntries).toMatchSnapshot()
+  })
+
   it(`creates nodes for each entry`, () => {
     const createNode = jest.fn()
+    const setBlankField = jest.fn()
     contentTypeItems.forEach((contentTypeItem, i) => {
       normalize.createContentTypeNodes({
         contentTypeItem,
         restrictedNodeFields,
         conflictFieldPrefix,
         entries: entryList[i],
+        blankEntries,
+        setBlankField,
         createNode,
         resolvable,
         foreignReferenceMap,
         defaultLocale,
-        locales,
+        locales
       })
     })
     expect(createNode.mock.calls).toMatchSnapshot()
@@ -69,7 +106,7 @@ describe(`Process contentful data`, () => {
         assetItem,
         createNode,
         defaultLocale,
-        locales,
+        locales
       })
     })
     expect(createNode.mock.calls).toMatchSnapshot()
@@ -88,7 +125,7 @@ describe(`Fix contentful IDs`, () => {
 describe(`Gets field value based on current locale`, () => {
   const field = {
     de: `Playsam Streamliner Klassisches Auto, Espresso`,
-    "en-US": `Playsam Streamliner Classic Car, Espresso`,
+    "en-US": `Playsam Streamliner Classic Car, Espresso`
   }
   it(`Gets the specified locale`, () => {
     expect(
@@ -96,8 +133,8 @@ describe(`Gets field value based on current locale`, () => {
         field,
         defaultLocale: `en-US`,
         locale: {
-          code: `en-US`,
-        },
+          code: `en-US`
+        }
       })
     ).toBe(field[`en-US`])
     expect(
@@ -105,8 +142,8 @@ describe(`Gets field value based on current locale`, () => {
         field,
         defaultLocale: `en-US`,
         locale: {
-          code: `de`,
-        },
+          code: `de`
+        }
       })
     ).toBe(field[`de`])
   })
@@ -117,8 +154,8 @@ describe(`Gets field value based on current locale`, () => {
         defaultLocale: `en-US`,
         locale: {
           code: `gsw_CH`,
-          fallbackCode: `de`,
-        },
+          fallbackCode: `de`
+        }
       })
     ).toBe(field[`de`])
   })
@@ -129,8 +166,8 @@ describe(`Gets field value based on current locale`, () => {
         defaultLocale: `en-US`,
         locale: {
           code: `es-US`,
-          fallbackCode: `null`,
-        },
+          fallbackCode: `null`
+        }
       })
     ).toBe(field[`en-US`])
   })
@@ -142,7 +179,7 @@ describe(`Make IDs`, () => {
       normalize.makeId({
         id: `id`,
         defaultLocale: `en-US`,
-        currentLocale: `en-US`,
+        currentLocale: `en-US`
       })
     ).toBe(`id`)
   })
@@ -151,7 +188,7 @@ describe(`Make IDs`, () => {
       normalize.makeId({
         id: `id`,
         defaultLocale: `en-US`,
-        currentLocale: `en-GB`,
+        currentLocale: `en-GB`
       })
     ).toBe(`id___en-GB`)
   })

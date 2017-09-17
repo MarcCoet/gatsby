@@ -165,6 +165,8 @@ exports.createContentTypeNodes = ({
   restrictedNodeFields,
   conflictFieldPrefix,
   entries,
+  blankEntries,
+  setBlankField,
   createNode,
   resolvable,
   foreignReferenceMap,
@@ -188,35 +190,76 @@ exports.createContentTypeNodes = ({
       }
     })
 
+    // TODO: we should be able to query entries even if there is no entry of that specific content type in contentful
+    // IDEA: If there are no entries of a type, provide an empty one
+    // if (!entries.length) {
+    //   entries.push(blankEntries[contentTypeItem.sys.id])
+    // }
+    // NOTE: -> GraphQL Error There was an error while compiling your site's GraphQL queries.
+
     // First create nodes for each of the entries of that content type
     const entryNodes = entries.map(entryItem => {
       // Get localized fields.
       const entryItemFields = _.mapValues(entryItem.fields, v => getField(v))
 
-      // If entry is not set by user, provide an empty value of the same type
-      const setBlankValue = contentTypeItemField => {
-        if (contentTypeItemField.type.match(/Symbol|Text|Date/)) {
-          return ``
-        } else if (contentTypeItemField.type.match(/Number/)) {
-          return NaN
-        } else if (
-          contentTypeItemField.type.match(
-            /Object|Location|Media|Reference|Link/
-          )
-        ) {
-          return {}
-        } else if (contentTypeItemField.type.match(/Array/)) {
-          // Setting values recursively is useful for 'never defined entries'
-          // TODO: Does not work for arrays of references, assets, objects, ...
-          return [setBlankValue(contentTypeItemField.items)]
-        } else if (contentTypeItemField.type.match(/Boolean/)) {
-          return false
-        }
-      }
       contentTypeItem.fields.forEach(contentTypeItemField => {
         const fieldName = contentTypeItemField.id
+
+        // Set blank values on undefined fields
         if (typeof entryItemFields[fieldName] === `undefined`) {
-          entryItemFields[fieldName] = setBlankValue(contentTypeItemField)
+          entryItemFields[fieldName] = setBlankField(contentTypeItemField)
+        }
+        // TODO: Arrays of references sould be a union type of all possible types
+        // IDEA: Set blank entries on arrays that are not using every content type they can
+        // if (Array.isArray(entryItemFields[fieldName])) {
+        //   // Array of types that the field handles
+        //   const typesToHave =
+        //     contentTypeItemField.items.validations &&
+        //     contentTypeItemField.items.validations[0] &&
+        //     contentTypeItemField.items.validations[0].linkContentType
+        //   // early return if it has no validations field
+        //   if (!typesToHave) {
+        //     return
+        //   }
+        //   // Add in an empty entry for each type that is not already in
+        //   // 1. create array of types currently in fields
+        //   const typesWeHave = entryItemFields[fieldName].map(entryItemField => {
+        //     return (
+        //       typeof entryItemField === `object` &&
+        //       entryItemField.sys.contentType &&
+        //       entryItemField.sys.contentType.sys.id
+        //     )
+        //   })
+        //   // 2. check if every typeToHave is present in typesWeHave
+        //   typesToHave.forEach(typeToHave => {
+        //     // 3. add blank entry of correct type if type is not in
+        //     if (typesWeHave.indexOf(typeToHave) < 0) {
+        //       entryItemFields[fieldName].push(
+        //         setBlankField({
+        //           type: `Link`,
+        //           linkType: `Entry`,
+        //           contentType: typeToHave
+        //         })
+        //       )
+        //     }
+        //   })
+        // }
+        // NOTE: Does not work because those references are not resolvable.
+        // They are ignored latter when building foreign references
+
+        // Add a "json" property on Objects with the stringified version of its content
+        // This allows for querying objects with changing properties
+        // TODO: how to handle a property "json" entered by user? Should we just
+        // use a more specific name than "json" for our created property
+        if (contentTypeItemField.type === `Object`) {
+          if (typeof entryItemFields[fieldName].json === `undefined`) {
+            entryItemFields[fieldName].json = JSON.stringify(
+              entryItemFields[fieldName]
+            )
+          } else {
+            const { json, ...originalObj } = entryItemFields[fieldName]
+            entryItemFields[fieldName].json = JSON.stringify(originalObj)
+          }
         }
       })
 
@@ -244,7 +287,6 @@ exports.createContentTypeNodes = ({
               ] = entryItemFieldValue
                 .filter(v => resolvable.has(v.sys.id))
                 .map(v => mId(v.sys.id))
-
               delete entryItemFields[entryItemFieldKey]
             }
           } else if (
@@ -307,7 +349,6 @@ exports.createContentTypeNodes = ({
         if (entryItemFieldKey.split(`___`).length > 1) {
           return
         }
-
         const fieldType = contentTypeItem.fields.find(
           f =>
             (restrictedNodeFields.includes(f.id)

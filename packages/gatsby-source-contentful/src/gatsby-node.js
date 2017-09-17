@@ -29,7 +29,7 @@ exports.sourceNodes = async (
     createNode,
     deleteNodes,
     touchNode,
-    setPluginStatus,
+    setPluginStatus
   } = boundActionCreators
 
   host = host || `cdn.contentful.com`
@@ -47,17 +47,17 @@ exports.sourceNodes = async (
     currentSyncData,
     contentTypeItems,
     defaultLocale,
-    locales,
+    locales
   } = await fetchData({
     syncToken,
     spaceId,
     accessToken,
-    host,
+    host
   })
 
   const entryList = normalize.buildEntryList({
     currentSyncData,
-    contentTypeItems,
+    contentTypeItems
   })
 
   // Remove deleted entries & assets.
@@ -89,8 +89,8 @@ exports.sourceNodes = async (
   if (host !== `preview.contentful.com`) {
     setPluginStatus({
       status: {
-        syncToken: nextSyncToken,
-      },
+        syncToken: nextSyncToken
+      }
     })
   }
 
@@ -101,7 +101,7 @@ exports.sourceNodes = async (
     entryList,
     assets,
     defaultLocale,
-    locales,
+    locales
   })
 
   // Build foreign reference map before starting to insert any nodes
@@ -110,7 +110,7 @@ exports.sourceNodes = async (
     entryList,
     resolvable,
     defaultLocale,
-    locales,
+    locales
   })
 
   const newOrUpdatedEntries = []
@@ -142,17 +142,112 @@ exports.sourceNodes = async (
       }
     })
 
+  // Blank entries with blank fields
+  // TODO: delete code for blank entries if there is another way to correct schema
+  let blankEntries = {}
+  const setBlankField = contentTypeItemField => {
+    if (contentTypeItemField.type.match(/Symbol|Text|Date/)) {
+      return ``
+    } else if (contentTypeItemField.type.match(/Number/)) {
+      return NaN
+    } else if (contentTypeItemField.type.match(/Link/)) {
+      if (contentTypeItemField.linkType === `Entry`) {
+        if (contentTypeItemField.contentType) {
+          if (
+            typeof blankEntries[contentTypeItemField.contentType] !==
+            `undefined`
+          ) {
+            return blankEntries[contentTypeItemField.contentType]
+          } else {
+            return setBlankEntry(
+              _.find(contentTypeItems, {
+                sys: { id: contentTypeItemField.contentType }
+              })
+            )
+          }
+        } else {
+          // NOTE: We land here if a field of a unique reference is left blank in contentful
+          // TODO: Find a better solution...
+          return {
+            sys: {
+              id: `cBlank${contentTypeItemField.id}`,
+              type: `Entry`
+            },
+            fields: {}
+          }
+        }
+      } else if (contentTypeItemField.linkType === `Asset`) {
+        // TODO: Does not work for assets. Should have a default asset to provide
+      }
+      return {}
+    } else if (
+      contentTypeItemField.type.match(/Object|Location|Media|Reference/)
+    ) {
+      return {}
+    } else if (contentTypeItemField.type.match(/Array/)) {
+      const { type, linkType } = contentTypeItemField.items
+      // Check validations array and for each entry rerun setBlankField
+      if (contentTypeItemField.items.validations[0]) {
+        return contentTypeItemField.items.validations[0].linkContentType.map(
+          contentType =>
+            setBlankField({
+              type,
+              linkType,
+              contentType
+            })
+        )
+      } else {
+        return [setBlankField(contentTypeItemField.items)]
+      }
+    } else if (contentTypeItemField.type.match(/Boolean/)) {
+      return false
+    }
+  }
+
+  const setBlankEntry = contentTypeItem => {
+    const now = new Date().toISOString()
+    const fields = {}
+    contentTypeItem.fields.forEach(field => {
+      fields[field.id] = setBlankField(field)
+    })
+    const blankEntry = {
+      sys: {
+        space: contentTypeItem.sys.space,
+        id: `cBlank${contentTypeItem.sys.id}`,
+        type: `Entry`,
+        createdAt: now,
+        updatedAt: now,
+        revision: 0,
+        contentType: {
+          sys: {
+            type: `Link`,
+            linkType: `ContentType`,
+            id: `${contentTypeItem.sys.id}`
+          }
+        }
+      },
+      fields
+    }
+    return blankEntry
+  }
+  // For each content Type, create a blank entry
+  contentTypeItems.forEach((contentTypeItem, i) => {
+    blankEntries[contentTypeItem.sys.id] = setBlankEntry(contentTypeItem)
+  })
+
   contentTypeItems.forEach((contentTypeItem, i) => {
     normalize.createContentTypeNodes({
       contentTypeItem,
       restrictedNodeFields,
       conflictFieldPrefix,
       entries: entryList[i],
+      blankEntries,
+      setBlankField,
       createNode,
       resolvable,
       foreignReferenceMap,
       defaultLocale,
-      locales,
+      locales
     })
   })
 
@@ -161,7 +256,7 @@ exports.sourceNodes = async (
       assetItem,
       createNode,
       defaultLocale,
-      locales,
+      locales
     })
   })
 
